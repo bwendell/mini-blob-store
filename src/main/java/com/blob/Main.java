@@ -2,6 +2,9 @@ package com.blob;
 
 import com.blob.model.ListObjectsResponse;
 import com.blob.model.ObjectSummary;
+import com.blob.model.s3.CommonPrefix;
+import com.blob.model.s3.S3ListBucketResult;
+import com.blob.model.s3.S3Object;
 
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpServer;
@@ -45,7 +48,7 @@ public class Main {
                 .end("{\"status\": \"ok\", \"tls\": \"enabled\"}");
         });
 
-        // OCI-compatible ListObjects endpoint
+        // OCI-native ListObjects endpoint
         router.get("/o").handler(ctx -> {
             String prefix = ctx.queryParams().get("prefix");
             String limit = ctx.queryParams().get("limit");
@@ -60,6 +63,64 @@ public class Main {
             ctx.response()
                 .putHeader("content-type", "application/json")
                 .end(response.toJson().encode());
+        });
+
+        // S3-compatible ListObjectsV2 endpoint
+        router.get("/:bucket").handler(ctx -> {
+            String listType = ctx.queryParams().get("list-type");
+
+            if (listType == null || !listType.equals("2")) {
+                ctx.response()
+                    .setStatusCode(400)
+                    .putHeader("content-type", "application/xml")
+                    .end(buildErrorResponse("InvalidRequest", "list-type=2 is required"));
+                return;
+            }
+
+            String bucket = ctx.pathParam("bucket");
+            String prefix = ctx.queryParams().get("prefix");
+            String delimiter = ctx.queryParams().get("delimiter");
+            String maxKeysParam = ctx.queryParams().get("max-keys");
+            String continuationToken = ctx.queryParams().get("continuation-token");
+            String startAfter = ctx.queryParams().get("start-after");
+
+            int maxKeys = maxKeysParam != null ? Integer.parseInt(maxKeysParam) : 1000;
+
+            List<ObjectSummary> objects = listObjects(prefix, null, startAfter);
+
+            List<S3Object> s3Objects = objects.stream()
+                .map(obj -> S3Object.builder()
+                    .key(obj.getName())
+                    .size(obj.getSize())
+                    .eTag(obj.getEtag())
+                    .lastModified(obj.getTimeModified())
+                    .build())
+                .collect(Collectors.toList());
+
+            List<CommonPrefix> commonPrefixes = new ArrayList<>();
+            if (delimiter != null && !delimiter.isEmpty()) {
+                commonPrefixes = extractCommonPrefixes(objects, prefix, delimiter);
+                s3Objects = s3Objects.stream()
+                    .filter(obj -> !obj.getKey().substring(prefix != null ? prefix.length() : 0).contains(delimiter))
+                    .collect(Collectors.toList());
+            }
+
+            S3ListBucketResult response = S3ListBucketResult.builder()
+                .name(bucket)
+                .prefix(prefix != null ? prefix : "")
+                .delimiter(delimiter)
+                .maxKeys(maxKeys)
+                .isTruncated(false)
+                .keyCount(s3Objects.size() + commonPrefixes.size())
+                .continuationToken(continuationToken)
+                .startAfter(startAfter)
+                .contents(s3Objects)
+                .commonPrefixes(commonPrefixes)
+                .build();
+
+            ctx.response()
+                .putHeader("content-type", "application/xml")
+                .end(response.toXml());
         });
 
         String keyPath = System.getProperty("key.path", "key.pem");
@@ -133,5 +194,52 @@ public class Main {
         return STUB_OBJECTS.stream()
             .filter(obj -> obj.getName().startsWith(prefix))
             .collect(Collectors.toList());
+    }
+
+    /**
+     * Extracts common prefixes when delimiter is used (S3 folder simulation).
+     *
+     * @param objects list of objects
+     * @param prefix current prefix
+     * @param delimiter delimiter character
+     * @return list of common prefixes
+     */
+    private static List<CommonPrefix> extractCommonPrefixes(List<ObjectSummary> objects, String prefix, String delimiter) {
+        String effectivePrefix = prefix != null ? prefix : "";
+
+        return objects.stream()
+            .map(ObjectSummary::getName)
+            .filter(name -> name.length() > effectivePrefix.length())
+            .map(name -> name.substring(effectivePrefix.length()))
+            .filter(name -> name.contains(delimiter))
+            .map(name -> effectivePrefix + name.substring(0, name.indexOf(delimiter) + delimiter.length()))
+            .distinct()
+            .map(CommonPrefix::new)
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * Builds an S3-compatible error response XML.
+     *
+     * @param code error code
+     * @param message error message
+     * @return XML error response
+     */
+    private static String buildErrorResponse(String code, String message) {
+        return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+               "<Error>\n" +
+               "  <Code>" + escapeXml(code) + "</Code>\n" +
+               "  <Message>" + escapeXml(message) + "</Message>\n" +
+               "</Error>";
+    }
+
+    private static String escapeXml(String value) {
+        if (value == null) return "";
+        return value
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\"", "&quot;")
+            .replace("'", "&apos;");
     }
 }
