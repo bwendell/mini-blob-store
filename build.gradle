@@ -1,0 +1,54 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'com.blob'
+version = '1.0-SNAPSHOT'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_25
+    targetCompatibility = JavaVersion.VERSION_25
+}
+
+// Disable toolchain to use system Java directly
+tasks.withType(JavaCompile) {
+    options.fork = false
+}
+
+repositories {
+    mavenCentral()
+}
+
+def nettyVersion = '4.1.115.Final'
+def vertxVersion = '4.5.11'
+
+dependencies {
+    // Netty
+    implementation "io.netty:netty-common:$nettyVersion"
+    implementation "io.netty:netty-buffer:$nettyVersion"
+    implementation "io.netty:netty-transport:$nettyVersion"
+    implementation "io.netty:netty-handler:$nettyVersion"
+    implementation "io.netty:netty-codec:$nettyVersion"
+    implementation "io.netty:netty-codec-http:$nettyVersion"
+    implementation "io.netty:netty-codec-http2:$nettyVersion"
+
+    // Netty TCNative (OpenSSL/BoringSSL support)
+    implementation 'io.netty:netty-tcnative-boringssl-static:2.0.70.Final'
+
+    // Vert.x Web
+    implementation "io.vertx:vertx-web:$vertxVersion"
+    implementation "io.vertx:vertx-core:$vertxVersion"
+
+    // Testing
+    testImplementation platform('org.junit:junit-bom:5.11.0')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+}
+
+application {
+    mainClass = 'com.blob.Main'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}

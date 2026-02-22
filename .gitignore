@@ -1,1 +1,53 @@
+# Gradle
+.gradle/
+build/
+out/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Java
+*.class
+*.jar
+*.war
+*.ear
+*.nar
+hs_err_pid*
+replay_pid*
+
+# IDE - IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# IDE - Eclipse
+.project
+.classpath
+.settings/
+bin/
+
+# IDE - VS Code
+.vscode/
+
+# OS-specific
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+*~
+
+# Certificates and secrets
 *.pem
+*.p12
+*.jks
+*.keystore
+*.key
+*.crt
+*.der
+
+# Logs
+*.log
+logs/
+
+# Application data
+data/
