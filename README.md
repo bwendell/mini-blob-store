@@ -19,12 +19,32 @@ The end goal is an HTTPS server that accepts `PUT` and `GET` requests for files,
 | HTTPS server with TLS | ✅ Implemented |
 | OpenSSL via netty-tcnative | ✅ Integrated |
 | Basic endpoints (`/`, `/health`) | ✅ Implemented |
+| OCI-native API (`/o`, `/o/:objectName`) | ✅ Implemented |
+| S3-compatible API (`/:bucket`) | ✅ Implemented |
+| File PUT handler (streaming upload) | 🚧 Planned |
+| File GET handler (streaming download) | 🚧 Planned |
+| Chunked async file I/O | 🚧 Planned |
+| TLS benchmarking | 🚧 Planned |
+|---------|--------|
+| HTTPS server with TLS | ✅ Implemented |
+| OpenSSL via netty-tcnative | ✅ Integrated |
+| Basic endpoints (`/`, `/health`) | ✅ Implemented |
 | File PUT handler (streaming upload) | 🚧 Planned |
 | File GET handler (streaming download) | 🚧 Planned |
 | Chunked async file I/O | 🚧 Planned |
 | TLS benchmarking | 🚧 Planned |
 
 ### What's Built
+
+A minimal HTTPS server demonstrating Vert.x + Netty + OpenSSL integration with OCI-native and S3-compatible APIs:
+
+```
+GET /                    → {"message": "Hello from Vert.x + Netty + TLS!"}
+GET /health              → {"status": "ok", "tls": "enabled"}
+GET /o?prefix=logs/      → List objects with prefix (OCI-native)
+PUT /o/:objectName       → Upload object with Content-Length (OCI-native)
+GET /:bucket?list-type=2 → List objects (S3-compatible ListObjectsV2)
+```
 
 A minimal HTTPS server demonstrating Vert.x + Netty + OpenSSL integration:
 
@@ -89,25 +109,78 @@ curl -k https://localhost:8443/health
 curl -k https://localhost:8443/
 
 # Expected: {"message": "Hello from Vert.x + Netty + TLS!"}
+
+# OCI-native ListObjects
+curl -k "https://localhost:8443/o?prefix=logs/"
+
+# OCI-native PutObject
+curl -k -X PUT "https://localhost:8443/o/test.txt" \
+  -H "Content-Length: 13" \
+  -d "Hello, World!"
+
+# S3-compatible ListObjectsV2
+curl -k "https://localhost:8443/mybucket?list-type=2&prefix=logs/"
+```
+# Basic health check
+curl -k https://localhost:8443/health
+
+# Expected: {"status": "ok", "tls": "enabled"}
+
+# Root endpoint
+curl -k https://localhost:8443/
+
+# Expected: {"message": "Hello from Vert.x + Netty + TLS!"}
 ```
 
 ## Project Structure
 
 ```
 mini-blob-store/
-├── src/main/java/com/example/
-│   ├── Main.java          # Application entry point, Vert.x server setup
-│   └── SslConfig.java     # SSL context utilities (PKCS12/JKS, mTLS support)
-├── build.gradle           # Dependencies: Vert.x, Netty, netty-tcnative
-├── cert.pem               # Development self-signed certificate
-├── key.pem                # Development private key
-├── AGENTS.md              # Code style guidelines for AI assistants
-└── README.md              # This file
-```
+├── src/main/java/com/blob/
+│   ├── Main.java                    # Application entry point, Vert.x server setup
+│   ├── SslConfig.java               # SSL context utilities (PKCS12/JKS, mTLS support)
+│   └── model/
+│       ├── ObjectSummary.java       # Object metadata model
+│       ├── ListObjectsResponse.java # OCI-native list objects response
+│       └── s3/
+│           ├── S3Object.java        # S3-compatible object model
+│           ├── S3ListBucketResult.java  # S3 ListBucket response
+│           └── CommonPrefix.java    # S3 common prefix for delimiters
+├── build.gradle                     # Dependencies: Vert.x, Netty, netty-tcnative
+├── cert.pem                         # Development self-signed certificate
+├── key.pem                          # Development private key
+├── AGENTS.md                        # Code style guidelines for AI assistants
+└── README.md                        # This file
+
 
 ## Architecture
 
 ### Current Implementation
+
+```
+┌─────────────────────────────────────────────────────┐
+│                     Client                          │
+└─────────────────────┬───────────────────────────────┘
+                      │ HTTPS
+                      ▼
+┌─────────────────────────────────────────────────────┐
+│              Vert.x HttpServer                      │
+│  ┌───────────────────────────────────────────────┐  │
+│  │  Router                                        │  │
+│  │  ├── GET /              → Health check        │  │
+│  │  ├── GET /health        → TLS status          │  │
+│  │  ├── GET /o             → ListObjects (OCI)   │  │
+│  │  ├── PUT /o/:name       → PutObject (OCI)     │  │
+│  │  └── GET /:bucket       → ListObjectsV2 (S3)  │  │
+│  └───────────────────────────────────────────────┘  │
+└─────────────────────┬───────────────────────────────┘
+                      │
+                      ▼
+┌─────────────────────────────────────────────────────┐
+│           netty-tcnative (OpenSSL)                  │
+│           Native TLS termination                    │
+└─────────────────────────────────────────────────────┘
+```
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -130,6 +203,40 @@ mini-blob-store/
 ```
 
 ### Planned Architecture (Blob Store)
+
+```
+┌─────────────────────────────────────────────────────┐
+│                     Client                          │
+└─────────────────────┬───────────────────────────────┘
+                      │ HTTPS
+                      ▼
+┌─────────────────────────────────────────────────────┐
+│              Vert.x HttpServer                      │
+│  ┌───────────────────────────────────────────────┐  │
+│  │  Router                                        │  │
+│  │  ├── GET /              → Health check        │  │
+│  │  ├── GET /health        → TLS status          │  │
+│  │  ├── GET /o             → ListObjects (OCI)   │  │
+│  │  ├── PUT /o/:name       → PutObject (OCI)     │  │
+│  │  ├── GET /:bucket       → ListObjectsV2 (S3)  │  │
+│  │  ├── PUT /:bucket/:key  → Stream to disk      │  │
+│  │  ├── GET /:bucket/:key  → Stream from disk    │  │
+│  │  └── DELETE /:bucket/:key → Remove file       │  │
+│  └───────────────────────────────────────────────┘  │
+└─────────────────────┬───────────────────────────────┘
+                      │
+                      ▼
+┌─────────────────────────────────────────────────────┐
+│           Netty Async File I/O                      │
+│           Chunked streaming (no full buffering)     │
+└─────────────────────┬───────────────────────────────┘
+                      │
+                      ▼
+┌─────────────────────────────────────────────────────┐
+│           Local Filesystem                          │
+│           ./data/ directory                         │
+└─────────────────────────────────────────────────────┘
+```
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -198,10 +305,10 @@ Also supports mutual TLS (mTLS) via `fromKeyStoreWithTrust()`.
 ./gradlew test
 
 # Single test class
-./gradlew test --tests "com.example.MyTestClass"
+./gradlew test --tests "com.blob.MyTestClass"
 
 # Single test method
-./gradlew test --tests "com.example.MyTestClass.myTestMethod"
+./gradlew test --tests "com.blob.MyTestClass.myTestMethod"
 ```
 
 ### Build Without Tests
@@ -227,6 +334,8 @@ This project serves as a hands-on exploration of:
 
 ## Future Enhancements
 
+- [x] OCI-native API (`/o`, `/o/:objectName`)
+- [x] S3-compatible API (`/:bucket` ListObjectsV2)
 - [ ] Chunked file upload/download with backpressure
 - [ ] S3-compatible API (`/bucket/key` paths)
 - [ ] Benchmark suite for TLS throughput comparison

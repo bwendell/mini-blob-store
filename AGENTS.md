@@ -7,7 +7,7 @@ This is a **Java/Gradle project** using Vert.x and Netty with SSL/TLS support (n
 - **Build Tool**: Gradle 9.3.1
 - **Framework**: Vert.x Web 4.5.11, Netty 4.1.115
 - **Testing**: JUnit 5 (Jupiter) 5.11.0
-- **Main Class**: `com.example.Main`
+- **Main Class**: `com.blob.Main`
 
 ---
 
@@ -29,10 +29,10 @@ This is a **Java/Gradle project** using Vert.x and Netty with SSL/TLS support (n
 ./gradlew test
 
 # Run single test class
-./gradlew test --tests "com.example.MyTestClass"
+./gradlew test --tests "com.blob.MyTestClass"
 
 # Run single test method
-./gradlew test --tests "com.example.MyTestClass.myTestMethod"
+./gradlew test --tests "com.blob.MyTestClass.myTestMethod"
 
 # Run tests matching pattern
 ./gradlew test --tests "*IntegrationTest"
@@ -69,7 +69,7 @@ This is a **Java/Gradle project** using Vert.x and Netty with SSL/TLS support (n
 | Methods | camelCase | `getSslContext()`, `main()` |
 | Variables | camelCase | `httpsPort`, `keyPath` |
 | Constants | UPPER_SNAKE_CASE | `HTTPS_PORT = 8443` |
-| Packages | lowercase | `com.example` |
+| Packages | lowercase | `com.blob` |
 
 ### Code Patterns
 
@@ -146,13 +146,13 @@ server.listen()
 - Test method naming: `should<ExpectedBehavior>` or `test<Description>`
 - Use JUnit 5 features: `@DisplayName`, `@Nested`, `@ParameterizedTest`
 - One assertion per test when possible for clear failure messages
-- Test location: `src/test/java/com/example/`
+- Test location: `src/test/java/com/blob/`
 
 ```java
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
 
-class SslConfigTest {
+class MyTestClass {
 
     @Test
     @DisplayName("should load keystore successfully")
@@ -170,14 +170,21 @@ class SslConfigTest {
 mini-blob-store/
 ├── src/
 │   ├── main/
-│   │   └── java/com/example/
-│   │       ├── Main.java          # Application entry point
-│   │       └── SslConfig.java     # SSL configuration
+│   │   └── java/com/blob/
+│   │       ├── Main.java                    # Application entry point
+│   │       ├── SslConfig.java               # SSL configuration utilities
+│   │       └── model/
+│   │           ├── ObjectSummary.java       # Object metadata model
+│   │           ├── ListObjectsResponse.java # List objects response
+│   │           └── s3/
+│   │               ├── S3Object.java        # S3-compatible object model
+│   │               ├── S3ListBucketResult.java  # S3 ListBucket response
+│   │               └── CommonPrefix.java    # S3 common prefix for delimiters
 │   └── test/
-│       └── java/com/example/       # Test files go here
-├── build.gradle                    # Build configuration
-├── gradlew                         # Gradle wrapper
-└── AGENTS.md                       # This file
+│       └── java/com/blob/                   # Test files go here
+├── build.gradle                             # Build configuration
+├── gradlew                                  # Gradle wrapper
+└── AGENTS.md                                # This file
 ```
 
 ---
@@ -202,4 +209,4 @@ Endpoints:
 
 ## Important Notes
 
-**No CI yet**: Tests currently have no test source files - add tests to `src/test/java/com/example/`.
+**No CI yet**: Tests currently have no test source files - add tests to `src/test/java/com/blob/`.
