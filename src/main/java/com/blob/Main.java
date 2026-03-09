@@ -16,6 +16,10 @@ import io.vertx.core.net.PemTrustOptions;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.Base64;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
 
 public class Main {
 
@@ -63,6 +67,79 @@ public class Main {
             ctx.response()
                 .putHeader("content-type", "application/json")
                 .end(response.toJson().encode());
+        });
+
+        // OCI-native PutObject endpoint
+        router.put("/o/:objectName").handler(ctx -> {
+            String objectName = ctx.pathParam("objectName");
+            String contentLengthHeader = ctx.request().getHeader("Content-Length");
+            String contentMd5 = ctx.request().getHeader("Content-MD5");
+
+            // Validate required Content-Length header
+            if (contentLengthHeader == null || contentLengthHeader.isEmpty()) {
+                ctx.response()
+                    .setStatusCode(400)
+                    .putHeader("content-type", "application/json")
+                    .end("{\"code\": \"MissingContentLength\", \"message\": \"Content-Length header is required\"}");
+                return;
+            }
+
+            long contentLength;
+            try {
+                contentLength = Long.parseLong(contentLengthHeader);
+            } catch (NumberFormatException e) {
+                ctx.response()
+                    .setStatusCode(400)
+                    .putHeader("content-type", "application/json")
+                    .end("{\"code\": \"InvalidContentLength\", \"message\": \"Content-Length must be a valid number\"}");
+                return;
+            }
+
+            // Read the request body
+            ctx.request().body().onSuccess(buffer -> {
+                byte[] bodyBytes = buffer.getBytes();
+
+                // Validate Content-MD5 if provided
+                if (contentMd5 != null && !contentMd5.isEmpty()) {
+                    String computedMd5 = Base64.getEncoder().encodeToString(computeMD5(bodyBytes));
+                    if (!computedMd5.equals(contentMd5)) {
+                        ctx.response()
+                            .setStatusCode(400)
+                            .putHeader("content-type", "application/json")
+                            .end("{\"code\": \"UnmatchedContentMD5\", \"message\": \"Provided Content-MD5 does not match computed MD5\"}");
+                        return;
+                    }
+                }
+
+                // Generate ETag (MD5 hash of content)
+                String eTag = generateETag(bodyBytes);
+
+                // Create or update the object
+                ObjectSummary object = ObjectSummary.builder()
+                    .name(objectName)
+                    .size(contentLength)
+                    .md5(contentMd5)
+                    .etag(eTag)
+                    .timeModified(Instant.now())
+                    .build();
+
+                // Remove existing object with same name if present
+                STUB_OBJECTS.removeIf(obj -> obj.getName().equals(objectName));
+                STUB_OBJECTS.add(object);
+
+                // Build response matching OCI PutObject response format
+                ctx.response()
+                    .setStatusCode(200)
+                    .putHeader("ETag", eTag)
+                    .putHeader("Last-Modified", Instant.now().toString())
+                    .putHeader("opc-content-md5", contentMd5 != null ? contentMd5 : eTag)
+                    .end();
+            }).onFailure(err -> {
+                ctx.response()
+                    .setStatusCode(500)
+                    .putHeader("content-type", "application/json")
+                    .end("{\"code\": \"InternalError\", \"message\": \"Failed to read request body\"}");
+            });
         });
 
         // S3-compatible ListObjectsV2 endpoint
@@ -241,5 +318,35 @@ public class Main {
             .replace(">", "&gt;")
             .replace("\"", "&quot;")
             .replace("'", "&apos;");
+    }
+
+    /**
+     * Generates an ETag from the MD5 hash of the content.
+     *
+     * @param content the byte array content
+     * @return ETag string (hex-encoded MD5)
+     */
+    private static String generateETag(byte[] content) {
+        byte[] md5Bytes = computeMD5(content);
+        StringBuilder sb = new StringBuilder();
+        for (byte b : md5Bytes) {
+            sb.append(String.format("%02x", b));
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Computes the MD5 hash of the given content.
+     *
+     * @param content the byte array content
+     * @return MD5 hash bytes
+     */
+    private static byte[] computeMD5(byte[] content) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("MD5");
+            return md.digest(content);
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException("MD5 algorithm not available", e);
+        }
     }
 }
